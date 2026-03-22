@@ -2,7 +2,7 @@
 """
 Chirp Generator
 ====================
-An original sci-fi communicator sound designer.
+An original sci-fi computer beep, communicator trill & other sounds designer.
 Uses FM synthesis to create chirps distinct from any copyrighted sounds.
 
 Requirements:
@@ -24,7 +24,6 @@ import wave
 import os
 import threading
 import tempfile
-import json
 
 try:
     from pydub import AudioSegment
@@ -32,12 +31,12 @@ try:
 except ImportError:
     HAS_PYDUB = False
 
-# pydub needs ffmpeg at runtime — check for it explicitly so we can
+# pydub needs ffmpeg at runtime - check for it explicitly so we can
 # disable the MP3 button cleanly rather than segfaulting on click
 import shutil as _shutil
 HAS_FFMPEG = _shutil.which("ffmpeg") is not None
 
-# simpleaudio is excluded — it segfaults on many Linux audio setups.
+# simpleaudio is excluded - it segfaults on many Linux audio setups.
 # Playback uses aplay (Linux), afplay (Mac), or winsound (Windows) instead.
 
 
@@ -87,9 +86,9 @@ def n_blips_for_style(style):
     return {"double": 2, "trill": 3}.get(style, 1)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  Audio I/O
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 
 def audio_to_int16(a):
     return (np.clip(a, -1, 1) * 32767).astype(np.int16)
@@ -127,7 +126,7 @@ def save_arduino_h(path, audio, sample_rate=SAMPLE_RATE, var_name="chirp"):
         #include "chirp.h"
         // play with ESP32 DAC, I2S, or PWM using CHIRP_DATA / CHIRP_SAMPLES
     """
-    # Resample to 8-bit unsigned (0-255) — DAC-friendly for ESP32
+    # Resample to 8-bit unsigned (0-255) - DAC-friendly for ESP32
     normalised = np.clip(audio, -1.0, 1.0)
     samples_u8 = ((normalised + 1.0) * 127.5).astype(np.uint8)
     n = len(samples_u8)
@@ -171,7 +170,7 @@ def play_audio(audio):
         if sys.platform == "darwin":
             subprocess.run(["afplay", tmp], check=False)
         elif sys.platform.startswith("linux"):
-            # aplay: blocking call — wait for it to finish before deleting tmp
+            # aplay: blocking call - wait for it to finish before deleting tmp
             if subprocess.run(["aplay", "-q", tmp], check=False).returncode != 0:
                 # fallback: try paplay (PulseAudio) then ffplay
                 if subprocess.run(["paplay", tmp], check=False).returncode != 0:
@@ -186,9 +185,9 @@ def play_audio(audio):
             pass
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  Colours
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 
 DARK_BG    = "#1a1a2a"
 PANEL_BG   = "#252538"
@@ -215,9 +214,9 @@ STYLES = [
 ]
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Slider — round white handle
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+#  Slider - round white handle
+# ==============================================================================
 
 class Slider(tk.Canvas):
     H = 26; TRACK_H = 4; R = 9
@@ -279,9 +278,9 @@ class Slider(tk.Canvas):
         if self.on_change: self.on_change(self._val)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  SliderRow — label + hint + slider + live value
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+#  SliderRow - label + hint + slider + live value
+# ==============================================================================
 
 class SliderRow(tk.Frame):
     """
@@ -299,7 +298,7 @@ class SliderRow(tk.Frame):
         self._fmt_s = fmt; self._unit = unit; self._cb = on_change
         fg = label_fg or DARK_FG
 
-        # Left column: label + hint stacked — sized by content, not clipped
+        # Left column: label + hint stacked - sized by content, not clipped
         left = tk.Frame(self, bg=_bg)
         left.pack(side="left", fill="y", padx=(0, 4))
         tk.Label(left, text=label, bg=_bg, fg=fg,
@@ -328,77 +327,49 @@ class SliderRow(tk.Frame):
         self._lbl.config(text=self._fv(v))
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  BlipPanel — per-blip controls: freq + duration + envelope + volume
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+#  BlipFreqPanel - per-blip start/end frequency controls with add/remove
+# ==============================================================================
 
-class BlipPanel(tk.Frame):
-    """
-    Dynamically renders one coloured panel per blip.
-    Each panel: Start freq, End freq, Duration, Attack, Release, Volume.
-    Has an Add button at the bottom and a − remove button per blip.
-    """
-    MAX_BLIPS = 8
-    MIN_BLIPS = 1
-    _DEF_FREQS = [(900, 1400), (1000, 1500), (800, 1200)]
-    _DEF_DUR   = 0.18
-    _DEF_ATK   = 0.006
-    _DEF_REL   = 0.08
-    _DEF_VOL   = 0.60
+class BlipFreqPanel(tk.Frame):
+    _DEFAULTS    = [(900, 1400), (1000, 1500), (800, 1200)]
+    MAX_BLIPS    = 8
+    MIN_BLIPS    = 1
 
     def __init__(self, parent, on_change=None, on_count_change=None, **kw):
         super().__init__(parent, bg=PANEL_BG, **kw)
-        self._on_change       = on_change
-        self._on_count_change = on_count_change
-        self._rows   = []
+        self._on_change       = on_change        # called when any freq slider moves
+        self._on_count_change = on_count_change  # called when blip added/removed
+        self._rows = []  # list of (border_frame, content_frame, start_row, end_row)
         self._add_btn = None
 
-    # ── public API ────────────────────────────────────────────────────────────
+    # -- public API ----------------------------------
 
     def n_blips(self):
         return len(self._rows)
 
     def rebuild(self, n_blips, preserve=True):
-        old = [self._row_values(r) for r in self._rows]
+        """Rebuild to exactly n_blips, preserving values where possible."""
+        old = [(r[2].get(), r[3].get()) for r in self._rows]
         self._destroy_all()
         for i in range(n_blips):
-            if preserve and i < len(old):
-                v = old[i]
-            else:
-                sf, ef = self._DEF_FREQS[i % len(self._DEF_FREQS)]
-                v = (sf, ef, self._DEF_DUR, self._DEF_ATK, self._DEF_REL, self._DEF_VOL)
-            self._append_blip(*v)
-        self._refresh_add_btn()
-
-    def get_blip_params(self):
-        """Return list of (sf, ef, dur, atk, rel, vol) per blip."""
-        return [self._row_values(r) for r in self._rows]
-
-    def set_blip_params(self, param_list):
-        """Set from list of (sf, ef, dur, atk, rel, vol)."""
-        self._destroy_all()
-        for p in param_list:
-            self._append_blip(*p)
+            sv, ev = (old[i] if preserve and i < len(old)
+                      else self._DEFAULTS[i % len(self._DEFAULTS)])
+            self._append_blip(sv, ev)
         self._refresh_add_btn()
 
     def get_freqs(self):
         return [(r[2].get(), r[3].get()) for r in self._rows]
 
     def set_freqs(self, freq_list):
-        old = [self._row_values(r) for r in self._rows]
-        self._destroy_all()
-        for i, (sf, ef) in enumerate(freq_list):
-            if i < len(old):
-                _, _, dur, atk, rel, vol = old[i]
-            else:
-                dur, atk, rel, vol = self._DEF_DUR, self._DEF_ATK, self._DEF_REL, self._DEF_VOL
-            self._append_blip(sf, ef, dur, atk, rel, vol)
-        self._refresh_add_btn()
+        # Rebuild to match the list length, then set values
+        self.rebuild(len(freq_list), preserve=False)
+        for i, (s, e) in enumerate(freq_list):
+            if i < len(self._rows):
+                self._rows[i][2].set(s)
+                self._rows[i][3].set(e)
 
-    # ── internal ──────────────────────────────────────────────────────────────
-
-    def _row_values(self, r):
-        return (r[2].get(), r[3].get(), r[4].get(), r[5].get(), r[6].get(), r[7].get())
+    # -- internal build ----------------------
 
     def _destroy_all(self):
         for r in self._rows:
@@ -409,53 +380,56 @@ class BlipPanel(tk.Frame):
             self._add_btn.destroy()
             self._add_btn = None
 
-    def _append_blip(self, sf=900, ef=1400, dur=0.18, atk=0.006, rel=0.08, vol=0.60):
+    def _append_blip(self, sv=900, ev=1400):
         i   = len(self._rows)
         col = MARKER_COLS[i % len(MARKER_COLS)]
         bg  = self._tint(col)
 
+        # Coloured top border
         border = tk.Frame(self, bg=col, height=2)
         border.pack(fill="x", padx=2, pady=(8 if i > 0 else 2, 0))
 
         frm = tk.Frame(self, bg=bg)
         frm.pack(fill="x")
 
+        # Header row: label on left, remove "−" button on right
         hdr = tk.Frame(frm, bg=bg)
         hdr.pack(fill="x", padx=8, pady=(5, 0))
-        tk.Label(hdr, text=f"BLIP {i+1}", bg=bg, fg=col,
+
+        name = f"Blip {i+1}" if self.n_blips() > 0 else "Blip"
+        tk.Label(hdr, text=name.upper(), bg=bg, fg=col,
                  font=("Helvetica", 9, "bold"), anchor="w").pack(side="left")
-        rem_btn = tk.Button(hdr, text="−",
-                            command=lambda ix=i: self._remove_blip(ix),
-                            bg=bg, fg=col, font=("Helvetica", 12, "bold"),
+
+        # Remove button - only shown if more than MIN_BLIPS exist
+        idx_ref = [i]   # mutable ref so the lambda captures correctly
+        rem_btn = tk.Button(hdr, text="−", command=lambda: self._remove_blip(idx_ref[0]),
+                            bg=bg, fg=col, font=("Helvetica", 11, "bold"),
                             relief="flat", bd=0, padx=6, pady=0,
                             cursor="hand2", activebackground=self._tint2(col))
         rem_btn.pack(side="right")
 
-        def _mk(lbl, hint, lo, hi, val, res, unit, fmt):
-            row = SliderRow(frm, lbl, hint, lo, hi, val, res, unit, fmt,
-                            on_change=lambda _: self._fire(), label_fg=col, bg=bg)
-            row.pack(fill="x", padx=8, pady=3)
-            return row
+        sr = SliderRow(frm, "Start freq", "pitch the blip begins at",
+                       200, 3000, sv, 10, " Hz", "{:.0f}",
+                       on_change=lambda _: self._fire(), label_fg=col, bg=bg)
+        sr.pack(fill="x", padx=8, pady=3)
 
-        sf_row  = _mk("Start freq",  "pitch the blip begins at",       200,   3000, sf,  10,    " Hz", "{:.0f}")
-        ef_row  = _mk("End freq",    "pitch the blip lands on",        200,   3000, ef,  10,    " Hz", "{:.0f}")
-        dur_row = _mk("Duration",    "length of this blip",            0.02,  0.60, dur, 0.01,  " s",  "{:.2f}")
-        atk_row = _mk("Attack",      "fade-in time from silence",      0.001, 0.08, atk, 0.001, " s",  "{:.3f}")
-        rel_row = _mk("Release",     "fade-out time to silence",       0.01,  0.30, rel, 0.005, " s",  "{:.3f}")
-        vol_row = _mk("Volume",      "output level of this blip",      0.05,  1.00, vol, 0.05,  "",    "{:.2f}")
+        er = SliderRow(frm, "End freq", "pitch the blip lands on",
+                       200, 3000, ev, 10, " Hz", "{:.0f}",
+                       on_change=lambda _: self._fire(), label_fg=col, bg=bg)
+        er.pack(fill="x", padx=8, pady=(0, 7))
 
-        tk.Frame(frm, bg=bg, height=4).pack()
-        self._rows.append((border, frm, sf_row, ef_row, dur_row, atk_row, rel_row, vol_row))
+        self._rows.append((border, frm, sr, er))
         self._update_remove_buttons()
 
     def _remove_blip(self, idx):
         if len(self._rows) <= self.MIN_BLIPS:
             return
-        params = self.get_blip_params()
-        del params[idx]
+        # Capture current values, remove the one at idx, rebuild
+        freqs = self.get_freqs()
+        del freqs[idx]
         self._destroy_all()
-        for p in params:
-            self._append_blip(*p)
+        for sv, ev in freqs:
+            self._append_blip(sv, ev)
         self._refresh_add_btn()
         if self._on_count_change:
             self._on_count_change()
@@ -463,12 +437,12 @@ class BlipPanel(tk.Frame):
     def _add_blip(self):
         if len(self._rows) >= self.MAX_BLIPS:
             return
-        i = len(self._rows)
-        sf, ef = self._DEF_FREQS[i % len(self._DEF_FREQS)]
+        sv, ev = self._DEFAULTS[len(self._rows) % len(self._DEFAULTS)]
+        # Destroy add button, append blip, re-add button
         if self._add_btn:
             self._add_btn.destroy()
             self._add_btn = None
-        self._append_blip(sf, ef)
+        self._append_blip(sv, ev)
         self._refresh_add_btn()
         if self._on_count_change:
             self._on_count_change()
@@ -479,24 +453,35 @@ class BlipPanel(tk.Frame):
             self._add_btn = None
         if len(self._rows) < self.MAX_BLIPS:
             self._add_btn = tk.Button(
-                self, text="＋  Add blip", command=self._add_blip,
-                bg=BTN_BG, fg=ACCENT, font=("Helvetica", 10),
-                relief="flat", bd=0, padx=12, pady=5,
-                cursor="hand2", activebackground=BTN_ACTIVE)
+                self, text="＋  Add blip",
+                command=self._add_blip,
+                bg=BTN_BG, fg=ACCENT,
+                font=("Helvetica", 10), relief="flat", bd=0,
+                padx=12, pady=5, cursor="hand2",
+                activebackground=BTN_ACTIVE)
             self._add_btn.pack(fill="x", padx=8, pady=(8, 4))
 
     def _update_remove_buttons(self):
-        for i, r in enumerate(self._rows):
-            children = r[1].winfo_children()
+        """Show/hide − buttons based on current count."""
+        # We rebuild the entire panel to update button visibility cleanly
+        # This is called after every append, so at that point just update
+        # visibility of all existing remove buttons in hdr frames
+        for i, (border, frm, sr, er) in enumerate(self._rows):
+            # Find the hdr frame (first child of frm)
+            children = frm.winfo_children()
             if children:
-                hdr_ch = children[0].winfo_children()
-                if len(hdr_ch) >= 2:
-                    btn = hdr_ch[-1]
+                hdr = children[0]
+                hdr_children = hdr.winfo_children()
+                # Remove button is last child of hdr
+                if len(hdr_children) >= 2:
+                    rem_btn = hdr_children[-1]
                     if len(self._rows) <= self.MIN_BLIPS:
-                        btn.pack_forget()
+                        rem_btn.pack_forget()
                     else:
-                        btn.pack(side="right")
-                    btn.config(command=lambda ix=i: self._remove_blip(ix))
+                        rem_btn.pack(side="right")
+                    # Update the index reference for the lambda
+                    # Re-bind with current index
+                    rem_btn.config(command=lambda ix=i: self._remove_blip(ix))
 
     def _fire(self):
         if self._on_change: self._on_change()
@@ -514,7 +499,9 @@ class BlipPanel(tk.Frame):
                 f"{int(c[5:7],16)//5:02x}")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+#  WaveCanvas — draggable per-blip timeline
+# ==============================================================================
 
 class WaveCanvas(tk.Canvas):
     HEIGHT = 110; HW = 7
@@ -625,9 +612,9 @@ class WaveCanvas(tk.Canvas):
                 f"{int(c[5:7],16)//7:02x}")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  ScrollableFrame
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 
 class ScrollableFrame(tk.Frame):
     """Vertically scrollable container — place widgets in self.inner."""
@@ -653,9 +640,9 @@ class ScrollableFrame(tk.Frame):
         else:            self._cv.yview_scroll(int(-e.delta / 120), "units")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 #  Main application
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 
 class ChirpApp(tk.Tk):
     def __init__(self):
@@ -694,12 +681,12 @@ class ChirpApp(tk.Tk):
         b.pack(**pk)
         return b
 
-    # ── build UI ──────────────────────────────────────────────────────────────
+    # -- build UI -----------------------
 
     def _build_ui(self):
-        # ══════════════════════════════════════════════════════════════════════
+        # ==============================================================================
         #  FIXED TOP AREA  (header + timeline + transport) — does NOT scroll
-        # ══════════════════════════════════════════════════════════════════════
+        # ==============================================================================
         top = tk.Frame(self, bg=DARK_BG)
         top.pack(fill="x", side="top")
 
@@ -738,10 +725,6 @@ class ChirpApp(tk.Tk):
                   state="normal" if mp3_ok else "disabled").pack(side="left")
         self._mkbtn(tr, "💾  Arduino .h", self._save_arduino_h,
                     fg="#fab387", side="left", padx=(6, 0))
-        self._mkbtn(tr, "📤  Export config", self._export_config,
-                    fg=MUTED, side="left", padx=(6, 0))
-        self._mkbtn(tr, "📥  Import config", self._import_config,
-                    fg=MUTED, side="left", padx=(2, 0))
         if not HAS_PYDUB:
             tk.Label(tr, text="(pip install pydub)", bg=DARK_BG, fg=MUTED,
                      font=("Helvetica", 9)).pack(side="left", padx=6)
@@ -752,21 +735,21 @@ class ChirpApp(tk.Tk):
         # Thin divider line between fixed top and scrollable area
         tk.Frame(self, bg="#2e2e48", height=1).pack(fill="x", side="top")
 
-        # Status bar — fixed at bottom
+        # Status bar - fixed at bottom
         self.status_var = tk.StringVar(value="Ready.")
         tk.Label(self, textvariable=self.status_var, bg=DARK_BG, fg=MUTED,
                  font=("Helvetica", 10), anchor="w"
                  ).pack(fill="x", side="bottom", padx=16, pady=(4, 8))
         tk.Frame(self, bg="#2e2e48", height=1).pack(fill="x", side="bottom")
 
-        # ══════════════════════════════════════════════════════════════════════
+        # ==============================================================================
         #  SCROLLABLE AREA  — sliders + presets
-        # ══════════════════════════════════════════════════════════════════════
+        # ==============================================================================
         sf = ScrollableFrame(self, bg=DARK_BG)
         sf.pack(fill="both", expand=True, side="top")
         sc = sf.inner   # all scrollable content goes here
 
-        # ── Chirp shape ───────────────────────────────────────────────────────
+        # -- Chirp shape --------------
         p1 = self._section(sc, "Chirp shape")
 
         style_row = tk.Frame(p1, bg=PANEL_BG)
@@ -784,16 +767,20 @@ class ChirpApp(tk.Tk):
         cb.current(0); cb.pack(side="left", padx=(8, 0))
         cb.bind("<<ComboboxSelected>>", lambda e: self._on_style_change())
 
-        # ── Per-blip controls ────────────────────────────────────────────────
-        pf = self._section(sc, "Blip controls")
-        self.blip_panel = BlipPanel(
+        self.s_dur = self._mkslider(p1, "Duration",
+                                    "total length of the chirp",
+                                    0.05, 0.60, 0.18, 0.01, " s", "{:.2f}")
+
+        # -- Per-blip frequencies --------------------
+        pf = self._section(sc, "Blip frequencies")
+        self.freq_panel = BlipFreqPanel(
             pf,
             on_change=self._generate,
             on_count_change=lambda: self._generate(reset_positions=True))
-        self.blip_panel.pack(fill="x")
-        self.blip_panel.rebuild(1)
+        self.freq_panel.pack(fill="x")
+        self.freq_panel.rebuild(1)
 
-        # ── FM Texture ────────────────────────────────────────────────────────
+        # -- FM Texture ---------------------------
         p2 = self._section(sc, "FM Texture")
         self.s_fma = self._mkslider(p2, "FM amount",
                                     "how much the tone wobbles / gets metallic",
@@ -805,7 +792,19 @@ class ChirpApp(tk.Tk):
                                     "adds a higher harmonic — brighter, buzzier",
                                     0.0, 1.0, 0.5, 0.05, "", "{:.2f}")
 
-        # ── Presets ───────────────────────────────────────────────────────────
+        # -- Envelope ------------------------------
+        p3 = self._section(sc, "Envelope")
+        self.s_atk = self._mkslider(p3, "Attack",
+                                    "how quickly the blip fades in from silence",
+                                    0.001, 0.08, 0.006, 0.001, " s", "{:.3f}")
+        self.s_rel = self._mkslider(p3, "Release",
+                                    "how quickly the blip fades out to silence",
+                                    0.01, 0.30, 0.08, 0.005, " s", "{:.3f}")
+        self.s_vol = self._mkslider(p3, "Volume",
+                                    "overall output level of the chirp",
+                                    0.05, 1.00, 0.60, 0.05, "", "{:.2f}")
+
+        # -- Presets ----------------------
         p4  = self._section(sc, "Presets")
         row = tk.Frame(p4, bg=PANEL_BG)
         row.pack(fill="x", padx=8, pady=8)
@@ -826,43 +825,45 @@ class ChirpApp(tk.Tk):
 
         tk.Frame(sc, bg=DARK_BG, height=12).pack()
 
-    # ── style change ──────────────────────────────────────────────────────────
+    # -- style change -----------------------
 
     def _on_style_change(self):
         # Style only changes the sweep shape per blip — not the blip count
         self._generate(reset_positions=True)
 
-    # ── presets ───────────────────────────────────────────────────────────────
+    # --- presets -----------------
 
     def _apply_preset(self, p):
         lbl = next(l for l, k in STYLES if k == p["style"])
         self.style_var.set(lbl)
-        # Presets set per-blip freqs; envelope defaults come from BlipPanel
-        self.blip_panel.set_freqs(p["freqs"])
-        self.s_fma.set(p["fma"])
-        self.s_fmr.set(p["fmr"])
-        self.s_br.set(p["br"])
+        self.freq_panel.set_freqs(p["freqs"])   # set_freqs rebuilds to match count
+        self.s_dur.set(p["dur"]); self.s_fma.set(p["fma"])
+        self.s_fmr.set(p["fmr"]); self.s_br.set(p["br"])
+        self.s_atk.set(p["atk"]); self.s_rel.set(p["rel"])
+        self.s_vol.set(p["vol"])
         self._generate(reset_positions=True)
 
-    # ── generate ──────────────────────────────────────────────────────────────
+    # -- generate ----------------------
 
     def _generate(self, reset_positions=False):
         style    = next(k for l, k in STYLES if l == self.style_var.get())
+        duration = self.s_dur.get()
         fm_amt   = self.s_fma.get()
         fm_ratio = self.s_fmr.get()
         bright   = self.s_br.get()
+        attack   = self.s_atk.get()
+        release  = self.s_rel.get()
+        volume   = self.s_vol.get()
 
-        blips  = self.blip_panel.get_blip_params()  # [(sf, ef, dur, atk, rel, vol), ...]
-        n_segs = len(blips)
+        freqs  = self.freq_panel.get_freqs()
+        n_segs = len(freqs)
 
-        # Default positions: spread blips across the longest duration
-        max_dur = max(b[2] for b in blips) if blips else 0.18
-
+        # Default positions: spread blips evenly across 0..duration window
         def default_starts():
             if n_segs == 1:
                 return [0.0]
-            gap  = max_dur * 0.2
-            step = max_dur + gap
+            gap = duration * 0.05
+            step = (duration - gap * (n_segs - 1)) / n_segs + gap
             return [i * step for i in range(n_segs)]
 
         existing = self.wave_canvas.get_start_times()
@@ -871,14 +872,14 @@ class ChirpApp(tk.Tk):
                     else existing)
 
         audio_segs = []
-        for sf, ef, dur, atk, rel, vol in blips:
-            n = int(dur * SAMPLE_RATE)
+        for i, (sf, ef) in enumerate(freqs):
+            n = int(duration * SAMPLE_RATE)
             audio_segs.append(
-                synth_segment(n, sf, ef, fm_amt, fm_ratio, bright, atk, rel, vol)
+                synth_segment(n, sf, ef, fm_amt, fm_ratio, bright, attack, release, volume)
             )
 
         self.wave_canvas.set_segments(
-            list(zip(starts, [b[2] for b in blips])), audio_segs)
+            list(zip(starts, [duration] * n_segs)), audio_segs)
         self._current_audio = self.wave_canvas.get_mixed_audio()
         dur_ms = int(len(self._current_audio) / SAMPLE_RATE * 1000)
         self.status_var.set(
@@ -892,7 +893,7 @@ class ChirpApp(tk.Tk):
         dur_ms = int(len(self._current_audio) / SAMPLE_RATE * 1000)
         self.status_var.set(f"Positions: {', '.join(starts)} ms  ·  {dur_ms} ms total")
 
-    # ── transport ─────────────────────────────────────────────────────────────
+    # -- transport ----------------------------
 
     def _play(self):
         if self._current_audio is None: self._generate()
@@ -902,7 +903,7 @@ class ChirpApp(tk.Tk):
             except Exception as e: self.status_var.set(f"Playback error: {e}")
         threading.Thread(target=_do, daemon=True).start()
 
-    # ── export ────────────────────────────────────────────────────────────────
+    # -- export ---------------------------------
 
     def _save_wav(self):
         if self._current_audio is None: self._generate()
@@ -947,78 +948,8 @@ class ChirpApp(tk.Tk):
         except Exception as e:
             messagebox.showerror("Save error", str(e))
 
-    # ── config export / import ────────────────────────────────────────────────
 
-    def _export_config(self):
-        """Save all current settings to a .chirp JSON file."""
-        path = filedialog.asksaveasfilename(
-            defaultextension=".chirp",
-            filetypes=[("Chirp config", "*.chirp"), ("JSON", "*.json")],
-            initialfile="my_chirp.chirp")
-        if not path: return
-        try:
-            cfg = {
-                "version":   1,
-                "style":     next(k for l, k in STYLES if l == self.style_var.get()),
-                "fm_amount": self.s_fma.get(),
-                "fm_ratio":  self.s_fmr.get(),
-                "brightness":self.s_br.get(),
-                "timeline_positions": self.wave_canvas.get_start_times(),
-                "blips": [
-                    {"start_freq": sf, "end_freq": ef,
-                     "duration":   dur, "attack":   atk,
-                     "release":    rel, "volume":   vol}
-                    for sf, ef, dur, atk, rel, vol
-                    in self.blip_panel.get_blip_params()
-                ]
-            }
-            with open(path, "w") as f:
-                json.dump(cfg, f, indent=2)
-            self.status_var.set(f"Config exported → {os.path.basename(path)}")
-        except Exception as e:
-            messagebox.showerror("Export error", str(e))
-
-    def _import_config(self):
-        """Load a .chirp JSON file and restore all settings."""
-        path = filedialog.askopenfilename(
-            filetypes=[("Chirp config", "*.chirp"), ("JSON", "*.json")])
-        if not path: return
-        try:
-            with open(path) as f:
-                cfg = json.load(f)
-            if cfg.get("version", 0) != 1:
-                messagebox.showerror("Import error", "Unrecognised config version.")
-                return
-            # Style
-            style_key = cfg.get("style", "rise")
-            self.style_var.set(next((l for l, k in STYLES if k == style_key), "Rising sweep"))
-            # Global FM / brightness
-            self.s_fma.set(cfg.get("fm_amount",  60))
-            self.s_fmr.set(cfg.get("fm_ratio",   2.5))
-            self.s_br.set( cfg.get("brightness",  0.5))
-            # Per-blip params
-            blip_params = [
-                (b["start_freq"], b["end_freq"],
-                 b["duration"],   b["attack"],
-                 b["release"],    b["volume"])
-                for b in cfg.get("blips", [])
-            ]
-            if blip_params:
-                self.blip_panel.set_blip_params(blip_params)
-            # Regenerate with default positions first
-            self._generate(reset_positions=True)
-            # Then restore saved timeline positions if they match blip count
-            positions = cfg.get("timeline_positions", [])
-            if positions and len(positions) == self.blip_panel.n_blips():
-                blips = self.blip_panel.get_blip_params()
-                segs  = list(zip(positions, [b[2] for b in blips]))
-                self.wave_canvas.set_segments(segs, self.wave_canvas._audio)
-                self._current_audio = self.wave_canvas.get_mixed_audio()
-            self.status_var.set(f"Config imported ← {os.path.basename(path)}")
-        except Exception as e:
-            messagebox.showerror("Import error", str(e))
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
 if __name__ == "__main__":
     ChirpApp().mainloop()
+# ==============================================================================
