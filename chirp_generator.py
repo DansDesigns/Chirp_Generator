@@ -468,7 +468,12 @@ class BlipPanel(tk.Frame):
         if self._add_btn:
             self._add_btn.destroy()
             self._add_btn = None
+        # Temporarily suppress on_change so existing blip values aren't
+        # re-read mid-construction (sliders fire Configure during pack)
+        saved_cb = self._on_change
+        self._on_change = None
         self._append_blip(sf, ef)
+        self._on_change = saved_cb
         self._refresh_add_btn()
         if self._on_count_change:
             self._on_count_change()
@@ -517,17 +522,57 @@ class BlipPanel(tk.Frame):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class WaveCanvas(tk.Canvas):
-    HEIGHT = 110; HW = 7
+    """
+    Timeline canvas with horizontal scroll support.
+    The virtual canvas is ZOOM× wider than the visible area, giving
+    TIMELINE_S * ZOOM seconds of total timeline to scroll across.
+    """
+    HEIGHT   = 110
+    HW       = 7
+    ZOOM     = 3          # virtual width multiplier (visible × ZOOM = total seconds)
 
     def __init__(self, parent, on_change=None, **kw):
         super().__init__(parent, bg=WAVE_BG, highlightthickness=0,
                          height=self.HEIGHT, **kw)
-        self._segs = []; self._audio = []; self._on_change = on_change
+        self._segs      = []
+        self._audio     = []
+        self._on_change = on_change
         self._di = self._dx0 = self._ds0 = None
-        self.bind("<Configure>",       lambda e: self._draw())
+
+        self.bind("<Configure>",       self._on_configure)
         self.bind("<ButtonPress-1>",   self._press)
         self.bind("<B1-Motion>",       self._move)
         self.bind("<ButtonRelease-1>", self._release)
+
+    def _on_configure(self, e):
+        # Update the scroll region to ZOOM× the visible width
+        vw = (self.winfo_width() or 400) * self.ZOOM
+        self.configure(scrollregion=(0, 0, vw, self.HEIGHT))
+        self._draw()
+
+    # ── virtual ↔ canvas coordinate helpers ─────────────────────────────────
+
+    def _virt_width(self):
+        """Total virtual canvas width in pixels."""
+        return (self.winfo_width() or 400) * self.ZOOM
+
+    def _total_s(self):
+        """Total seconds represented by the virtual canvas."""
+        return TIMELINE_S * self.ZOOM
+
+    def _s_to_vx(self, s):
+        """Convert a time in seconds to a virtual-canvas x coordinate."""
+        return s / self._total_s() * self._virt_width()
+
+    def _vx_to_s(self, vx):
+        """Convert a virtual-canvas x coordinate to seconds."""
+        return vx / self._virt_width() * self._total_s()
+
+    def _screen_x_to_vx(self, sx):
+        """Convert a screen (widget) x to virtual-canvas x (accounts for scroll)."""
+        return self.canvasx(sx)
+
+    # ── public ───────────────────────────────────────────────────────────────
 
     def set_segments(self, segs, audio):
         self._segs  = [[s, d] for s, d in segs]
@@ -549,27 +594,35 @@ class WaveCanvas(tk.Canvas):
         if pk > 0: out /= pk / 0.92
         return out
 
-    def _mx(self, i):
-        return int(self._segs[i][0] / TIMELINE_S * (self.winfo_width() or 400))
+    # ── hit / drag ───────────────────────────────────────────────────────────
 
-    def _hit(self, x, y):
+    def _mx(self, i):
+        """Virtual-canvas x for segment i's handle."""
+        return int(self._s_to_vx(self._segs[i][0]))
+
+    def _hit(self, sx, y):
+        """Return index of segment handle under screen-x sx, or None."""
+        vx = self._screen_x_to_vx(sx)
         for i in range(len(self._segs)):
             mx = self._mx(i)
-            if abs(x - mx) <= self.HW and y >= self.HEIGHT - 20: return i
-            if abs(x - mx) <= 5: return i
+            if abs(vx - mx) <= self.HW and y >= self.HEIGHT - 20: return i
+            if abs(vx - mx) <= 5: return i
         return None
 
     def _press(self, e):
         i = self._hit(e.x, e.y)
         if i is not None:
-            self._di = i; self._dx0 = e.x; self._ds0 = self._segs[i][0]
+            self._di  = i
+            self._dx0 = self._screen_x_to_vx(e.x)
+            self._ds0 = self._segs[i][0]
             self.config(cursor="sb_h_double_arrow")
 
     def _move(self, e):
         if self._di is None: return
-        w = self.winfo_width() or 400
-        self._segs[self._di][0] = max(0.0, min(MAX_OFF_S,
-            self._ds0 + (e.x - self._dx0) / w * TIMELINE_S))
+        vx      = self._screen_x_to_vx(e.x)
+        delta_s = self._vx_to_s(vx - self._dx0)
+        new_s   = max(0.0, min(self._total_s() - 0.05, self._ds0 + delta_s))
+        self._segs[self._di][0] = new_s
         self._draw()
 
     def _release(self, e):
@@ -577,46 +630,63 @@ class WaveCanvas(tk.Canvas):
             self._di = None; self.config(cursor="")
             if self._on_change: self._on_change()
 
+    # ── drawing ───────────────────────────────────────────────────────────────
+
     def _draw(self):
         self.delete("all")
-        w = self.winfo_width() or 400; h = self.HEIGHT; mid = (h-22)//2+4
+        vw  = self._virt_width()
+        h   = self.HEIGHT
+        mid = (h - 22) // 2 + 4
+        ts  = self._total_s()
 
-        for i in range(int(TIMELINE_S*10)+1):
-            ts=i*0.1; x=int(ts/TIMELINE_S*w); major=i%5==0
-            self.create_line(x, 0, x, h-20, fill="#1c1c32" if major else "#161626")
+        # Grid lines — every 0.1 s across the full virtual width
+        ticks = int(ts * 10) + 1
+        for i in range(ticks):
+            t   = i * 0.1
+            x   = int(t / ts * vw)
+            major = i % 5 == 0
+            self.create_line(x, 0, x, h-20,
+                             fill="#1c1c32" if major else "#161626")
             if major:
-                self.create_text(x+2, 2, text=f"{ts:.1f}s", anchor="nw",
+                self.create_text(x+2, 2, text=f"{t:.1f}s", anchor="nw",
                                  fill=MUTED, font=("Helvetica", 8))
-        self.create_line(0, mid, w, mid, fill="#252545")
+
+        self.create_line(0, mid, vw, mid, fill="#252545")
 
         if not self._segs:
-            self.create_text(w//2, mid, text="adjust parameters to preview",
-                             fill=MUTED, font=("Helvetica", 10)); return
+            self.create_text(vw//2, mid, text="adjust parameters to preview",
+                             fill=MUTED, font=("Helvetica", 10))
+            return
 
         wh = mid - 10
         for i, ((s, d), seg) in enumerate(zip(self._segs, self._audio)):
             if not len(seg): continue
             col = MARKER_COLS[i % len(MARKER_COLS)]
-            x0  = int(s/TIMELINE_S*w); x1 = int((s+d)/TIMELINE_S*w)
-            sw  = max(x1-x0, 2)
-            self.create_rectangle(x0, mid-wh, x1, mid+wh, fill=self._dk(col), outline="")
-            step = max(1, len(seg)//(max(sw*2, 1))); pts = seg[::step]; np_ = len(pts)
+            x0  = int(self._s_to_vx(s))
+            x1  = int(self._s_to_vx(s + d))
+            sw  = max(x1 - x0, 2)
+            self.create_rectangle(x0, mid-wh, x1, mid+wh,
+                                   fill=self._dk(col), outline="")
+            step   = max(1, len(seg) // max(sw * 2, 1))
+            pts    = seg[::step]; np_ = len(pts)
             coords = []
             for j, v in enumerate(pts):
-                coords.extend([x0+j*sw/max(np_-1, 1), mid-v*(wh-2)])
+                coords.extend([x0 + j*sw/max(np_-1, 1), mid - v*(wh-2)])
             if len(coords) >= 4:
                 self.create_line(*coords, fill=col, width=1.5, smooth=True)
 
         for i, (s, d) in enumerate(self._segs):
-            col = MARKER_COLS[i % len(MARKER_COLS)]; mx = self._mx(i)
+            col = MARKER_COLS[i % len(MARKER_COLS)]
+            mx  = self._mx(i)
             self.create_line(mx, 0, mx, h-20, fill=col, width=1, dash=(3,3))
-            by = h-2
+            by  = h - 2
             self.create_polygon(mx-7, by, mx+7, by, mx, by-14,
                                  fill=col, outline=WAVE_BG, width=1)
-            lx = mx+9 if mx < w-55 else mx-9
+            # Label: shift right unless near right edge of virtual canvas
+            lx  = mx + 9 if mx < vw - 60 else mx - 9
+            an  = "nw" if mx < vw - 60 else "ne"
             self.create_text(lx, h-18, text=f"{s*1000:.0f} ms",
-                             anchor="nw" if mx < w-55 else "ne",
-                             fill=col, font=("Helvetica", 8, "bold"))
+                             anchor=an, fill=col, font=("Helvetica", 8, "bold"))
 
     @staticmethod
     def _dk(c):
@@ -718,7 +788,12 @@ class ChirpApp(tk.Tk):
         wf.pack(fill="x", padx=16, pady=(6, 0))
         self.wave_canvas = WaveCanvas(wf, on_change=self._on_timeline_drag)
         self.wave_canvas.pack(fill="x")
-        tk.Label(wf, text="drag ▲ handles to reposition blips on the timeline",
+        # Horizontal scrollbar — pans the timeline view
+        self.timeline_scroll = ttk.Scrollbar(wf, orient="horizontal",
+                                             command=self.wave_canvas.xview)
+        self.timeline_scroll.pack(fill="x")
+        self.wave_canvas.configure(xscrollcommand=self.timeline_scroll.set)
+        tk.Label(wf, text="drag ▲ handles to reposition blips  ·  scroll bar pans timeline",
                  bg=DARK_BG, fg=MUTED, font=("Helvetica", 9)).pack(anchor="e")
 
         # Transport row
