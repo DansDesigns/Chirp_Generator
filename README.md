@@ -2,6 +2,7 @@
 Frequency Modulation Tool to generate beeps, chirps & computer noises
 
 
+<img width="1165" height="1166" alt="Screenshot from 2026-03-23 01-08-42" src="https://github.com/user-attachments/assets/c78d7b31-4c64-4bf1-83ff-fc44ce31d6cb" />
 
 * To install on Linux:
 
