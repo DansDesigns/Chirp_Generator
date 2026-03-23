@@ -39,3 +39,20 @@ git clone this repo (or download as zip & extract)
 ```
 
 To be continued....
+
+
+
+=========================================
+
+* using .h files with Arduino IDE:
+
+place the .h file in the same folder as your .ino sketch,
+reference them as an import at the top of your .ino file:
+```
+#include "chirp.h"
+#include "ring.h"
+…
+```
+
+use dacWrite(FILENAME) to play .h files
+
