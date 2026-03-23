@@ -954,11 +954,6 @@ class ChirpApp(tk.Tk):
     # ── generate ──────────────────────────────────────────────────────────────
 
     def _generate(self, reset_positions=False):
-        # If looping, stop — user can restart loop with updated audio
-        was_looping = self._looping
-        if was_looping:
-            self._stop_loop()
-
         style    = next(k for l, k in STYLES if l == self.style_var.get())
         fm_amt   = self.s_fma.get()
         fm_ratio = self.s_fmr.get()
@@ -1033,13 +1028,13 @@ class ChirpApp(tk.Tk):
         def _loop_worker():
             while self._looping:
                 try:
+                    # Read fresh each iteration — picks up any slider changes
                     audio = self._current_audio
                     if audio is None: break
                     play_audio(audio.copy())
                 except Exception as e:
-                    self.after(0, lambda: self.status_var.set(f"Loop error: {e}"))
+                    self.after(0, lambda err=e: self.status_var.set(f"Loop error: {err}"))
                     break
-            # Reset button on exit (schedule on main thread)
             self.after(0, self._reset_loop_btn)
 
         self._loop_thread = threading.Thread(target=_loop_worker, daemon=True)
