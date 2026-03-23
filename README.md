@@ -2,12 +2,13 @@
 Frequency Modulation Tool to generate beeps, chirps & computer noises
 
 
-To install on Linux:
-```
-git clone this repo (or download as zip & extract)
-```
+
+* To install on Linux:
+
 from terminal:
 ```
+git clone https://github.com/DansDesigns/Chirp_Generator.git 
+
 cd Chirp_Generator
 
 chmod +x ./install_chirpgen.sh && ./install_chirpgen.sh
@@ -31,7 +32,7 @@ First run auto-launches & installs a .desktop shortcut to the app folder (use yo
 
 ========================================
 
-To install on Windows:
+* To install on Windows:
 ```
 git clone this repo (or download as zip & extract)
 ```
