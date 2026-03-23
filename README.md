@@ -1,12 +1,15 @@
 # Chirp_Generator
-Frequency Modulation Tool to generate beeps, chirps & computer noises
+Frequency Modulation Tool to generate beeps, chirps & computer noises.
+
+* can also be used to make ringtones, notifications alerts or sounds for computer games or any other media...
 
 
 <img width="1165" height="1166" alt="Screenshot from 2026-03-23 01-08-42" src="https://github.com/user-attachments/assets/c78d7b31-4c64-4bf1-83ff-fc44ce31d6cb" />
 
-* To install on Linux:
 
-from terminal:
+To install on Linux:
+
+* from terminal:
 ```
 git clone https://github.com/DansDesigns/Chirp_Generator.git 
 
@@ -15,7 +18,7 @@ cd Chirp_Generator
 chmod +x ./install_chirpgen.sh && ./install_chirpgen.sh
 ```
 
-from file browser:
+* from file browser:
 ```
 enter extracted folder
 
@@ -38,10 +41,8 @@ First run auto-launches & installs a .desktop shortcut to the app folder (use yo
 git clone this repo (or download as zip & extract)
 ```
 
-To be continued....
-
-
-
+* To be continued....
+  
 =========================================
 
 * using .h files with Arduino IDE:
