@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "style": "trill",
+  "fm_amount": 40,
+  "fm_ratio": 8.0,
+  "brightness": 0.8,
+  "timeline_positions": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "blips": [
+    {
+      "start_freq": 200,
+      "end_freq": 200,
+      "duration": 0.6,
+      "attack": 0.001,
+      "release": 0.08,
+      "volume": 0.6000000000000001
+    },
+    {
+      "start_freq": 360,
+      "end_freq": 360,
+      "duration": 0.6,
+      "attack": 0.006,
+      "release": 0.08,
+      "volume": 0.6000000000000001
+    },
+    {
+      "start_freq": 240,
+      "end_freq": 250,
+      "duration": 0.55,
+      "attack": 0.006,
+      "release": 0.08,
+      "volume": 0.6000000000000001
+    }
+  ]
+}

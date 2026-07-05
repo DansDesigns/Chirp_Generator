@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "style": "trill",
+  "fm_amount": 400,
+  "fm_ratio": 2.5,
+  "brightness": 1.0,
+  "timeline_positions": [
+    0.0,
+    0.216,
+    0.432,
+    0.648,
+    0.864,
+    1.08
+  ],
+  "blips": [
+    {
+      "start_freq": 690,
+      "end_freq": 700,
+      "duration": 0.1,
+      "attack": 0.001,
+      "release": 0.08,
+      "volume": 0.6000000000000001
+    },
+    {
+      "start_freq": 730,
+      "end_freq": 740,
+      "duration": 0.1,
+      "attack": 0.006,
+      "release": 0.08,
+      "volume": 0.6000000000000001
+    },
+    {
+      "start_freq": 460,
+      "end_freq": 470,
+      "duration": 0.1,
+      "attack": 0.006,
+      "release": 0.08,
+      "volume": 0.6000000000000001
+    },
+    {
+      "start_freq": 900,
+      "end_freq": 910,
+      "duration": 0.11,
+      "attack": 0.006,
+      "release": 0.08,
+      "volume": 0.6000000000000001
+    },
+    {
+      "start_freq": 1000,
+      "end_freq": 1000,
+      "duration": 0.1,
+      "attack": 0.006,
+      "release": 0.08,
+      "volume": 0.6000000000000001
+    },
+    {
+      "start_freq": 900,
+      "end_freq": 900,
+      "duration": 0.18,
+      "attack": 0.006,
+      "release": 0.08,
+      "volume": 0.6000000000000001
+    }
+  ]
+}
